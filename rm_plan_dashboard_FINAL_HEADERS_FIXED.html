@@ -1,0 +1,1167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SCAi IBP – Raw Material Plan | Jan 2026</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js">
+// ── VISUALIZATION RENDER ─────────────────────
+function renderViz(){
+  if(typeof D === 'undefined') return;
+
+  const agg = {};
+
+  D.forEach(r=>{
+    if(!agg[r.mid]){
+      agg[r.mid] = { stock: r.os || 0, req: r.tr || 0, pr: 0 };
+    }
+    agg[r.mid].pr += r.pq || 0;
+  });
+
+  const mats = Object.keys(agg).slice(0,6);
+
+  const stockHTML = mats.map(m=>{
+    const s = agg[m].stock;
+    const r = agg[m].req;
+    const max = Math.max(s,r,1);
+    const sp = (s/max)*100;
+    const rp = (r/max)*100;
+
+    return `
+      <div class="viz-item">
+        <div class="viz-label">
+          <span>${m}</span>
+          <span>Stock: ${s.toLocaleString()} · Req: ${r.toLocaleString()}</span>
+        </div>
+        <div class="viz-bar">
+          <div class="viz-fill fill-stock" style="width:${sp}%"></div>
+          <div class="viz-fill fill-req" style="width:${rp}%; margin-top:-12px; opacity:.7"></div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  const stockEl = document.getElementById('viz-stock');
+  if(stockEl) stockEl.innerHTML = stockHTML;
+
+  const maxPR = Math.max(...mats.map(m=>agg[m].pr),1);
+
+  const prHTML = mats.map(m=>{
+    const val = agg[m].pr;
+    const pct = (val/maxPR)*100;
+
+    return `
+      <div class="viz-item">
+        <div class="viz-label">
+          <span>${m}</span>
+          <span style="color:#065F46">${val.toLocaleString()}</span>
+        </div>
+        <div class="viz-bar">
+          <div class="viz-fill fill-pr" style="width:${pct}%"></div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  const prEl = document.getElementById('viz-pr');
+  if(prEl) prEl.innerHTML = prHTML;
+}
+
+setTimeout(renderViz, 200);
+
+</script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#F3F4F6;color:#111827;overflow:auto}
+#app{display:flex;height:100vh}
+
+/* ── SIDEBAR ── */
+#sidebar{width:68px;background:#0F1117;display:flex;flex-direction:column;align-items:center;flex-shrink:0;z-index:100}
+.sidebar-logo{width:68px;height:52px;background:#F97316;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.sidebar-logo svg{width:26px;height:26px}
+.sidebar-nav{flex:1;display:flex;flex-direction:column;align-items:center;padding:6px 0;gap:2px;width:100%}
+.sidebar-item{width:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:9px 4px;cursor:pointer;color:#9CA3AF;font-size:8.5px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;border-left:3px solid transparent;transition:all .15s}
+.sidebar-item:hover{color:#D1D5DB;background:rgba(255,255,255,.05)}
+.sidebar-item.active{color:#F97316;border-left-color:#F97316;background:rgba(249,115,22,.08)}
+.sidebar-item svg{width:18px;height:18px}
+
+/* ── MAIN ── */
+#main{flex:1;display:flex;flex-direction:column;overflow:auto;min-width:0}
+
+/* ── TOP NAV ── */
+#topnav{background:#fff;border-bottom:1px solid #E5E7EB;flex-shrink:0}
+.topnav-tabs{display:flex;align-items:center;padding:0 18px;border-bottom:1px solid #E5E7EB}
+.topnav-tab{padding:12px 14px;font-size:12.5px;font-weight:500;color:#9CA3AF;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .15s}
+.topnav-tab.active{color:#F97316;border-bottom-color:#F97316}
+.topnav-bar{display:flex;align-items:center;justify-content:space-between;padding:7px 18px}
+.breadcrumb{display:flex;align-items:center;gap:5px;font-size:12px;color:#9CA3AF}
+.breadcrumb .current{color:#F97316;font-weight:700}
+.topnav-actions{display:flex;align-items:center;gap:10px}
+.status-badge{font-size:11.5px;font-weight:600;color:#F97316}
+.status-label{font-size:11.5px;color:#6B7280}
+.view-toggle{display:flex;gap:2px;background:#F3F4F6;border-radius:5px;padding:2px}
+.view-btn{padding:3px 9px;font-size:11px;font-weight:500;color:#6B7280;border-radius:4px;cursor:pointer;transition:all .15s}
+.view-btn.active{background:#fff;color:#111827;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.filter-btn{display:flex;align-items:center;gap:4px;padding:4px 9px;border:1px solid #E5E7EB;border-radius:5px;font-size:11px;color:#374151;cursor:pointer;background:#fff}
+
+/* ── CONTENT ── */
+#content{flex:1;overflow-y:auto;padding:14px 18px;min-height:0;padding-bottom:80px}
+.screen{display:none;animation:fadeIn .2s ease}
+.screen.active{display:block}
+@keyframes fadeIn{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:translateY(0)}}
+
+/* ── CARDS ── */
+.cards-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px}
+.card{background:#fff;border:1px solid #E5E7EB;border-radius:8px;padding:12px 14px}
+.card-title{font-size:12px;font-weight:700;color:#374151;margin-bottom:9px;display:flex;align-items:center;gap:4px}
+.info-icon{width:14px;height:14px;background:#F3F4F6;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:8.5px;color:#9CA3AF;cursor:pointer;flex-shrink:0}
+.metric-row{display:flex;flex-direction:column;gap:3px}
+.metric-item{display:flex;align-items:center;gap:5px;font-size:11.5px;color:#374151}
+.mv{font-weight:800}
+.mv.green{color:#16A34A}.mv.orange{color:#F97316}.mv.red{color:#DC2626}.mv.blue{color:#2563EB}.mv.amber{color:#D97706}
+
+/* ── TABLE ── */
+
+/* --- COLUMN WIDTH FIX --- */
+.data-table th:nth-child(1), .data-table td:nth-child(1){width:36px}
+.data-table th:nth-child(2), .data-table td:nth-child(2){width:110px}
+.data-table th:nth-child(3), .data-table td:nth-child(3){width:110px}
+.data-table th:nth-child(4), .data-table td:nth-child(4),
+.data-table th:nth-child(5), .data-table td:nth-child(5),
+.data-table th:nth-child(6), .data-table td:nth-child(6){width:110px}
+.data-table th:nth-child(7), .data-table td:nth-child(7),
+.data-table th:nth-child(8), .data-table td:nth-child(8),
+.data-table th:nth-child(9), .data-table td:nth-child(9),
+.data-table th:nth-child(10), .data-table td:nth-child(10),
+.data-table th:nth-child(11), .data-table td:nth-child(11),
+.data-table th:nth-child(12), .data-table td:nth-child(12){width:95px}
+.data-table th:nth-child(13), .data-table td:nth-child(13){width:140px}
+.data-table th:nth-child(14), .data-table td:nth-child(14){width:70px}
+.data-table th:nth-child(15), .data-table td:nth-child(15){width:90px}
+.data-table th:nth-child(16), .data-table td:nth-child(16){width:90px}
+.data-table th:nth-child(17), .data-table td:nth-child(17){width:100px}
+.data-table th:nth-child(18), .data-table td:nth-child(18){width:110px}
+
+.table-section{background:#fff;border:1px solid #E5E7EB;border-radius:8px}
+.table-toolbar{display:flex;align-items:center;justify-content:space-between;padding:9px 12px;border-bottom:1px solid #E5E7EB;flex-wrap:wrap;gap:6px}
+.manage-cols-btn{display:flex;align-items:center;gap:5px;padding:5px 10px;border:1px solid #E5E7EB;border-radius:5px;font-size:11px;color:#374151;cursor:pointer;background:#fff}
+.action-btns{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+.btn{display:flex;align-items:center;gap:4px;padding:5px 10px;border:1px solid #D1D5DB;border-radius:5px;font-size:11.5px;font-weight:500;color:#374151;cursor:pointer;background:#fff;transition:all .15s}
+.btn:hover{background:#F9FAFB}
+.btn.approve{color:#16A34A;border-color:#16A34A}
+.btn.approve:hover{background:#F0FDF4}
+.btn.reject{color:#DC2626;border-color:#DC2626}
+.btn.reject:hover{background:#FEF2F2}
+.btn.disabled{opacity:.45;cursor:not-allowed;pointer-events:none}
+.btn-icon{width:28px;height:28px;display:flex;align-items:center;justify-content:center;border:1px solid #D1D5DB;border-radius:5px;cursor:pointer;background:#fff;color:#6B7280;flex-shrink:0}
+.btn-icon.blue{background:#2563EB;border-color:#2563EB;color:#fff}
+.data-table{width:100%;border-collapse:collapse;font-size:11.5px;table-layout:fixed}
+.data-table thead th{background:#F9FAFB;padding:9px 10px;text-align:left;font-weight:600;color:#6B7280;font-size:10.5px;border-bottom:1px solid #E5E7EB;white-space:nowrap;cursor:pointer;user-select:none}
+.data-table thead th:hover{background:#F3F4F6}
+.data-table th.num, .data-table td.num{text-align:right}
+.data-table thead th.num, .data-table td.num{text-align:right}
+.data-table tbody tr{border-bottom:1px solid #F3F4F6;transition:background .1s;cursor:pointer}
+.data-table tbody tr:hover{background:#FFF7ED}
+.data-table tbody tr.row-approved{border-left:3px solid #16A34A;background:#F0FDF4}
+.data-table tbody tr.row-rejected{border-left:3px solid #DC2626;background:#FEF2F2}
+.data-table td{padding:9px 10px;color:#374151;white-space:nowrap}
+.data-table td.num{text-align:right;font-variant-numeric:tabular-nums}
+.pr-hi{color:#F97316;font-weight:700}
+.zero-v{color:#C4C4C4}
+.table-footer{display:flex;align-items:center;justify-content:space-between;padding:9px 12px;border-top:1px solid #E5E7EB;font-size:11px;color:#6B7280;flex-wrap:wrap;gap:6px}
+.pagination{display:flex;align-items:center;gap:3px}
+.page-btn{width:26px;height:26px;display:flex;align-items:center;justify-content:center;border:1px solid #E5E7EB;border-radius:4px;font-size:11px;cursor:pointer;color:#374151;background:#fff}
+.page-btn.active{background:#F97316;color:#fff;border-color:#F97316}
+.legend{display:flex;align-items:center;gap:10px}
+.legend-item{display:flex;align-items:center;gap:3px;font-size:10.5px;color:#6B7280}
+.sdot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.sdot.p{background:#F59E0B}.sdot.a{background:#16A34A}.sdot.r{background:#DC2626}
+
+/* ── TAGS ── */
+.tag{display:inline-flex;align-items:center;padding:1px 7px;border-radius:10px;font-size:10.5px;font-weight:600}
+.tag.green{background:#D1FAE5;color:#065F46}
+.tag.orange{background:#FED7AA;color:#92400E}
+.tag.red{background:#FEE2E2;color:#991B1B}
+.tag.blue{background:#DBEAFE;color:#1E40AF}
+.tag.grey{background:#F3F4F6;color:#6B7280}
+
+/* ── TOOLTIP ── */
+.ttpw{position:relative;display:inline-flex;align-items:center}
+.ttpc{position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);background:#1F2937;color:#fff;font-size:10.5px;padding:6px 9px;border-radius:6px;pointer-events:none;opacity:0;transition:opacity .15s;z-index:999;white-space:normal;max-width:220px;text-align:center;line-height:1.5;min-width:140px}
+.ttpw:hover .ttpc{opacity:1}
+.ann{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;background:#DBEAFE;border-radius:50%;font-size:8px;font-weight:800;color:#1D4ED8;cursor:help;flex-shrink:0}
+
+/* ── DETAIL SCREENS ── */
+.back-btn{display:flex;align-items:center;gap:5px;font-size:12px;color:#6B7280;cursor:pointer;padding:4px 0;margin-bottom:6px}
+.back-btn:hover{color:#374151}
+.detail-title{font-size:17px;font-weight:800;color:#111827}
+.detail-sub{font-size:12px;color:#6B7280;margin-top:2px}
+.detail-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:14px;gap:10px}
+.kpi-mini{background:#fff;border:1px solid #E5E7EB;border-radius:8px;padding:10px;text-align:center}
+.kpi-mini-val{font-size:20px;font-weight:900;line-height:1.1}
+.kpi-mini-label{font-size:9.5px;color:#9CA3AF;text-transform:uppercase;letter-spacing:.5px;margin-top:2px}
+.kpi-mini-sub{font-size:10px;color:#6B7280;margin-top:3px}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.three-col{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+
+/* ── AI BOX ── */
+.ai-box{background:linear-gradient(135deg,#FFF7ED,#FEF3C7);border:1px solid #FED7AA;border-radius:8px;padding:12px 14px}
+.ai-box-hdr{display:flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;color:#92400E;margin-bottom:7px}
+.ai-txt{font-size:11.5px;color:#78350F;line-height:1.65}
+
+/* ── PERIOD CARDS ── */
+.period-card{border:1px solid #E5E7EB;border-radius:8px;padding:11px;margin-bottom:8px}
+.period-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;font-size:11px;margin-top:8px}
+.period-grid-item .label{color:#9CA3AF;font-size:10px;margin-bottom:1px}
+.period-grid-item .val{font-weight:700;color:#374151}
+.alert-box{margin-top:7px;padding:5px 8px;border-radius:4px;font-size:10.5px;line-height:1.5}
+
+/* ── MODAL ── */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:1000;opacity:0;pointer-events:none;transition:opacity .2s}
+.modal-overlay.active{opacity:1;pointer-events:all}
+.modal{background:#fff;border-radius:10px;padding:22px;max-width:460px;width:90%;transform:scale(.95);transition:transform .2s}
+.modal-overlay.active .modal{transform:scale(1)}
+.modal-title{font-size:15px;font-weight:700;color:#111827;margin-bottom:7px}
+.modal-body{font-size:12.5px;color:#6B7280;line-height:1.65}
+.modal-actions{display:flex;gap:8px;margin-top:18px;justify-content:flex-end}
+
+/* ── SCREEN NAV ── */
+.screen-nav-bar{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);display:flex;gap:0;background:rgba(15,17,23,.88);border-radius:24px;padding:5px 6px;z-index:500;align-items:center;backdrop-filter:blur(8px)}
+.snav-btn{display:flex;align-items:center;gap:5px;padding:5px 12px;font-size:11px;font-weight:600;color:rgba(255,255,255,.5);cursor:pointer;border-radius:18px;transition:all .2s;white-space:nowrap}
+.snav-btn.active{background:#F97316;color:#fff}
+.snav-btn:hover:not(.active){color:rgba(255,255,255,.85)}
+
+/* ── WALKTHROUGH BANNER ── */
+.wt-banner{background:linear-gradient(90deg,#1E3A8A,#1D4ED8);color:#fff;font-size:11.5px;padding:7px 16px;display:flex;align-items:center;gap:8px;flex-shrink:0}
+.wt-banner svg{flex-shrink:0}
+.wt-close{margin-left:auto;cursor:pointer;opacity:.7;font-size:14px;padding:0 4px}
+.wt-close:hover{opacity:1}
+
+canvas{max-height:260px !important;}
+
+
+/* ── VISUALIZATION ── */
+.viz-row{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:12px;
+  margin-bottom:12px;
+}
+.viz-card{
+  background:#fff;
+  border:1px solid #E5E7EB;
+  border-radius:8px;
+  padding:14px;
+}
+.viz-title{
+  font-size:13px;
+  font-weight:700;
+  margin-bottom:12px;
+  color:#111827;
+}
+.viz-item{
+  margin-bottom:14px;
+}
+.viz-label{
+  display:flex;
+  justify-content:space-between;
+  font-size:12px;
+  font-weight:600;
+  margin-bottom:6px;
+}
+.viz-bar{
+  height:12px;
+  background:#E5E7EB;
+  border-radius:6px;
+  overflow:hidden;
+}
+.viz-fill{
+  height:100%;
+  border-radius:6px;
+}
+.fill-stock{ background:#94A3B8 }
+.fill-req{ background:#FCA5A5 }
+.fill-pr{ background:#065F46 }
+
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-thumb{background:#D1D5DB;border-radius:3px}
+::-webkit-scrollbar-track{background:transparent}
+
+input[type=checkbox]{cursor:pointer;accent-color:#F97316}
+
+/* ── RISK FLAGS ── */
+.risk-flag{display:flex;gap:10px;padding:9px 12px;border-radius:7px;margin-bottom:7px;font-size:11.5px}
+.risk-flag .emoji{font-size:16px;flex-shrink:0;line-height:1.4}
+.risk-flag .flag-title{font-weight:700;margin-bottom:2px}
+.risk-flag .flag-body{line-height:1.55}
+.risk-critical{background:#FEF2F2;border-left:4px solid #EF4444}
+.risk-critical .flag-title{color:#991B1B}
+.risk-critical .flag-body{color:#B91C1C}
+.risk-warn{background:#FFFBEB;border-left:4px solid #F59E0B}
+.risk-warn .flag-title{color:#92400E}
+.risk-warn .flag-body{color:#C2410C}
+.risk-ok{background:#F0FDF4;border-left:4px solid #16A34A}
+.risk-ok .flag-title{color:#065F46}
+.risk-ok .flag-body{color:#047857}
+.risk-info{background:#EFF6FF;border-left:4px solid #3B82F6}
+.risk-info .flag-title{color:#1E3A8A}
+.risk-info .flag-body{color:#1D4ED8}
+
+/* ── FLOW ── */
+.flow-wrap{display:flex;align-items:center;overflow-x:auto;padding:14px 0;gap:0}
+.flow-node{display:flex;flex-direction:column;align-items:center;min-width:100px;flex-shrink:0}
+.flow-icon{width:46px;height:46px;border-radius:10px;display:flex;align-items:center;justify-content:center;margin:0 auto 6px;font-size:20px}
+.flow-lbl{font-size:10.5px;font-weight:700;color:#111827;text-align:center}
+.flow-sub{font-size:9.5px;color:#9CA3AF;text-align:center;margin-top:2px;line-height:1.4}
+.flow-arrow{flex:1;height:2px;background:#D1D5DB;position:relative;min-width:28px;flex-shrink:0;margin:0 2px;margin-top:-30px}
+.flow-arrow::after{content:'▶';position:absolute;right:-7px;top:-8px;font-size:10px;color:#9CA3AF}
+
+/* ── SUPP COMPARE ── */
+.supp-card{border-radius:8px;border:1px solid #E5E7EB;padding:14px}
+</style>
+</head>
+<body>
+<div id="app">
+
+<!-- ── SIDEBAR ── -->
+<aside id="sidebar">
+  <div class="sidebar-logo">
+    <svg viewBox="0 0 26 26" fill="none"><rect width="11" height="11" fill="white"/><rect x="15" y="0" width="11" height="11" fill="rgba(255,255,255,.5)"/><rect x="0" y="15" width="11" height="11" fill="rgba(255,255,255,.65)"/><rect x="15" y="15" width="11" height="11" fill="white"/></svg>
+  </div>
+  <div class="sidebar-nav">
+    <div class="sidebar-item" onclick="si(this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>
+      Home
+    </div>
+    <div class="sidebar-item active" onclick="si(this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+      S&OP
+    </div>
+    <div class="sidebar-item" onclick="si(this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      Demand
+    </div>
+    <div class="sidebar-item" onclick="si(this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 010 14.14M4.93 4.93a10 10 0 000 14.14"/></svg>
+      Supply
+    </div>
+  </div>
+</aside>
+
+<!-- ── MAIN ── -->
+<div id="main">
+
+  <!-- Walkthrough banner -->
+  <div class="wt-banner" id="wt-banner">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+    <strong>Walkthrough Guide:</strong>&nbsp; Click any table row → Material Deep Dive &nbsp;|&nbsp; Click supplier name → Supplier Intelligence &nbsp;|&nbsp; Use bottom nav to jump between views &nbsp;|&nbsp; Hover <span style="background:rgba(255,255,255,.2);padding:0 4px;border-radius:3px">?</span> badges for explanations
+    <span class="wt-close" onclick="document.getElementById('wt-banner').style.display='none'">✕</span>
+  </div>
+
+  <!-- Top nav -->
+  <nav id="topnav">
+    <div class="topnav-tabs">
+      <div class="topnav-tab active">Integrated Business Planning</div>
+      <div class="topnav-tab">Enterprise Data Management</div>
+    </div>
+    <div class="topnav-bar">
+      <div class="breadcrumb" id="breadcrumb">
+        <span>Jan 26</span><span style="color:#D1D5DB">›</span><span class="current">RM Plan</span>
+      </div>
+      <div class="topnav-actions">
+        <span id="bc-status"><span class="status-label">Status : </span><span class="status-badge">Planned &amp; Executed</span></span>
+        <div class="view-toggle">
+          <div class="view-btn active">Table only</div>
+          <div class="view-btn">Table with charts</div>
+        </div>
+        <div class="filter-btn">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+          Filters
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Content -->
+  <div id="content">
+
+    <!-- ═══════════════ SCREEN 1: RM PLAN TABLE ═══════════════ -->
+    <div id="screen-1" class="screen active">
+
+      <div class="cards-row">
+        <!-- Plan Summary -->
+        <div class="card">
+          <div class="card-title">Plan Summary <span class="info-icon ttpw">i<span class="ttpc">High-level counts of entities in this plan run</span></span></div>
+          <div class="metric-row">
+            <div class="metric-item">RM Count: <span class="mv green" style="margin-left:4px">121</span>
+              <span class="ann ttpw">?<span class="ttpc">121 unique raw material SKUs have active procurement requirements in this Jan 2026 plan cycle</span></span></div>
+            <div class="metric-item">Destination Count: <span class="mv orange" style="margin-left:4px">1</span>
+              <span class="ann ttpw">?<span class="ttpc">All RMs are flowing to a single production/receiving site: CHN-PP (China Production Plant)</span></span></div>
+            <div class="metric-item">Source Count: <span class="mv orange" style="margin-left:4px">2</span>
+              <span class="ann ttpw">?<span class="ttpc">2 qualified suppliers: RM SUPPLIER-2 (Rank 1 – primary) and RM SUPPLIER-1 (Rank 2 – backup). The engine automatically assigns the best-ranked available supplier per material.</span></span></div>
+          </div>
+        </div>
+
+        <!-- Plan Metrics -->
+        <div class="card">
+          <div class="card-title">Plan Metrics <span class="info-icon ttpw">i<span class="ttpc">Output volume of the MRP planning engine</span></span></div>
+          <div class="metric-row">
+            <div class="metric-item">RM Orders: <span class="mv green" style="margin-left:4px">364</span>
+              <span class="ann ttpw">?<span class="ttpc">364 Purchase Requisitions (PRs) generated. Each PR = 1 material × 1 release date × 1 supplier. Multiple PRs per material cover different planning periods.</span></span></div>
+            <div style="margin-top:5px;display:flex;gap:4px;align-items:center;flex-wrap:wrap">
+              <span style="font-size:10.5px;color:#9CA3AF">Periods:</span>
+              <span class="tag orange">Dec '25</span><span class="tag orange">Jan '26</span><span class="tag orange">Feb '26</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Approval Status -->
+        <div class="card">
+          <div class="card-title">Approval Status <span class="info-icon ttpw">i<span class="ttpc">Planner review progress. PRs must be Approved before they are released as Purchase Orders to suppliers.</span></span></div>
+          <div class="metric-row">
+            <div class="metric-item">Pending: <span class="mv amber" id="cnt-pending" style="margin-left:4px">364</span>
+              <span class="ann ttpw">?<span class="ttpc">All 364 PRs are awaiting planner review. Click 'Approve' or 'Reject' on selected rows, or use Approve All to bulk-process.</span></span></div>
+            <div class="metric-item">Approved: <span class="mv green" id="cnt-approved" style="margin-left:4px">0</span></div>
+            <div class="metric-item">Rejected: <span class="mv red" id="cnt-rejected" style="margin-left:4px">0</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Table -->
+      
+<!-- ── VISUALIZATION PANEL ── -->
+<div class="viz-row">
+
+  <div class="viz-card">
+    <div class="viz-title">Stock vs Total Requirement by Material</div>
+    <div id="viz-stock"></div>
+  </div>
+
+  <div class="viz-card">
+    <div class="viz-title">PR Quantity by Material (Procurement Orders)</div>
+    <div id="viz-pr"></div>
+  </div>
+
+</div>
+
+<div class="table-section">
+        <div class="table-toolbar">
+          <div class="manage-cols-btn">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+            Manage Columns
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+          </div>
+          <div class="action-btns">
+            <!-- Insights quick access -->
+            <button class="btn" style="color:#7C3AED;border-color:#7C3AED" onclick="showScreen(4)">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              Procurement Insights
+            </button>
+            <div class="btn-icon ttpw"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg><span class="ttpc">Column legend &amp; data dictionary</span></div>
+            <button class="btn approve" onclick="openModal('approve-modal')">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Approve</button>
+            <button class="btn reject" onclick="openModal('reject-modal')">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> Reject</button>
+            <button class="btn"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Edit</button>
+            <button class="btn"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add</button>
+            <button class="btn"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg> Replan</button>
+            <button class="btn disabled">Save</button>
+            <div class="btn-icon blue"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div>
+            <div class="btn-icon"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div>
+          </div>
+        </div>
+
+        <div style="overflow:auto; width:100%; max-width:100%;">
+          <table class="data-table" id="tbl">
+            <thead><tr>
+              <th style="width:34px"><input type="checkbox" id="chk-all" onchange="toggleAll(this)"></th>
+              <th class="ttpw">To Node Code<span class="ttpc">Destination production/storage site receiving the raw material</span></th>
+              <th class="ttpw">Material ID<span class="ttpc">Unique identifier for the raw material SKU</span></th>
+              <th class="ttpw">Generation Date<span class="ttpc">Date the MRP engine generated this PR (plan run date)</span></th>
+              <th class="ttpw">Release Date<span class="ttpc">Date the PO must be placed with supplier to meet receipt date (Release = Receipt − Lead Time)</span></th>
+              <th class="ttpw">Receipt Date<span class="ttpc">Date material must physically arrive at CHN-PP</span></th>
+              <th class="num ttpw">Opening Stock<span class="ttpc">Inventory on hand at the start of this planning period</span></th>
+              <th class="num ttpw">Open Orders<span class="ttpc">Quantity already on order (in-transit / committed)</span></th>
+              <th class="num ttpw">Safety Stock<span class="ttpc">Minimum buffer stock required to protect against demand/supply variability. PR is triggered when stock falls below this level.</span></th>
+              <th class="num ttpw">Total Req.<span class="ttpc">Total consumption requirement for this period (from production plan)</span></th>
+              <th class="num ttpw">Net Req.<span class="ttpc">Net Requirement = Safety Stock − Opening Stock − Open Orders (only when positive). This is how much NEW stock is needed.</span></th>
+              <th class="num ttpw">PR Qty<span class="ttpc">Recommended purchase quantity. Equal to Net Requirement. Orange = active PR. Dash = no action needed.</span></th>
+              <th class="ttpw">Supplier<span class="ttpc">Selected supplier based on ranking, lead time, quality yield, and availability</span></th>
+              <th class="ttpw">Rank<span class="ttpc">Supplier priority ranking. Rank 1 = preferred, Rank 2 = backup</span></th>
+              <th class="num ttpw">Lead Time<span class="ttpc">Days from PO release to goods receipt</span></th>
+              <th class="num ttpw">Quality %<span class="ttpc">Expected quality yield. Higher = fewer rejects and less wastage</span></th>
+              <th class="num ttpw">Shelf Life<span class="ttpc">Remaining shelf life (days) after material is received. Must exceed production consumption horizon.</span></th>
+              <th>Status</th>
+            </tr></thead>
+            <tbody id="tbody"></tbody>
+          </table>
+        </div>
+
+        <div class="table-footer">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <span>Showing <strong>19</strong> of <strong>364</strong> rows</span>
+            <select style="border:1px solid #E5E7EB;border-radius:5px;padding:3px 6px;font-size:11px;color:#374151"><option>25</option><option>50</option><option>100</option></select>
+            <div class="legend">
+              <div class="legend-item"><span class="sdot a"></span>Approved</div>
+              <div class="legend-item"><span class="sdot r"></span>Rejected</div>
+              <div class="legend-item"><span class="sdot p"></span>Pending</div>
+            </div>
+          </div>
+          <div class="pagination">
+            <div class="page-btn">‹</div>
+            <div class="page-btn active">1</div>
+            <div class="page-btn">2</div>
+            <div class="page-btn">3</div>
+            <div class="page-btn">…</div>
+            <div class="page-btn">15</div>
+            <div class="page-btn">›</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════════════ SCREEN 2: MATERIAL DETAIL ═══════════════ -->
+    <div id="screen-2" class="screen">
+      <div class="detail-header">
+        <div>
+          <div class="back-btn" onclick="showScreen(1)">← Back to RM Plan</div>
+          <div class="detail-title" id="d-title">RM-NAME-201799 (Material ID: 201799)</div>
+          <div class="detail-sub">Destination: CHN-PP &nbsp;·&nbsp; Supplier: RM SUPPLIER-2 &nbsp;·&nbsp; Lead Time: 25 days &nbsp;·&nbsp; Quality Yield: 99.5%</div>
+        </div>
+        <div style="display:flex;gap:6px;flex-shrink:0">
+          <button class="btn approve" onclick="approveMat()">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+            Approve All PRs
+          </button>
+          <button class="btn reject"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> Reject</button>
+        </div>
+      </div>
+
+      <div class="three-col" style="margin-bottom:11px">
+        <div class="kpi-mini"><div class="kpi-mini-val" style="color:#F97316">3</div><div class="kpi-mini-label">Purchase Requisitions</div><div class="kpi-mini-sub">Across 3 planning periods</div></div>
+        <div class="kpi-mini"><div class="kpi-mini-val" style="color:#DC2626;font-size:16px">157,826</div><div class="kpi-mini-label">Total PR Quantity (units)</div><div class="kpi-mini-sub">Largest order in this plan</div></div>
+        <div class="kpi-mini"><div class="kpi-mini-val" style="color:#2563EB;font-size:16px">154,411</div><div class="kpi-mini-label">Safety Stock Level</div><div class="kpi-mini-sub">Minimum buffer required</div></div>
+      </div>
+
+      <div class="two-col">
+        <div>
+          <!-- Period 1 -->
+          <div class="card" style="margin-bottom:10px">
+            <div class="card-title" style="margin-bottom:0">
+              <div style="display:flex;justify-content:space-between;align-items:center;width:100%">
+                <span>Period 1 — Jan 2026 <span style="font-size:10px;font-weight:400;color:#9CA3AF">(Release: 17 Dec '25 → Receipt: 1 Jan '26)</span></span>
+                <span class="tag orange">Pending</span>
+              </div>
+            </div>
+            <div class="period-grid" style="margin-top:10px">
+              <div class="period-grid-item"><div class="label">Opening Stock</div><div class="val">44,017</div></div>
+              <div class="period-grid-item"><div class="label">Safety Stock</div><div class="val" style="color:#2563EB">154,411</div></div>
+              <div class="period-grid-item"><div class="label">Total Req.</div><div class="val">35,393</div></div>
+              <div class="period-grid-item"><div class="label">Net Requirement</div><div class="val" style="color:#DC2626">145,788</div></div>
+              <div class="period-grid-item"><div class="label">PR Quantity</div><div class="val" style="color:#F97316;font-size:13px">145,788</div></div>
+              <div class="period-grid-item"><div class="label">Shelf Life</div><div class="val" style="color:#16A34A">985 days ✓</div></div>
+            </div>
+            <div class="alert-box" style="background:#FEF3C7;color:#92400E">
+              ⚡ <strong>Large PR:</strong> Opening stock (44k) is only 28.5% of safety stock target (154k). The engine triggers a significant replenishment to restore buffer.
+            </div>
+          </div>
+
+          <!-- Period 2 -->
+          <div class="card" style="margin-bottom:10px;border-left:4px solid #F97316">
+            <div class="card-title" style="margin-bottom:0">
+              <div style="display:flex;justify-content:space-between;align-items:center;width:100%">
+                <span>Period 2 — Feb 2026 <span style="font-size:10px;font-weight:400;color:#9CA3AF">(Release: 17 Jan '26 → Receipt: 1 Feb '26)</span></span>
+                <span class="tag orange">Pending</span>
+              </div>
+            </div>
+            <div class="period-grid" style="margin-top:10px">
+              <div class="period-grid-item"><div class="label">Opening Stock</div><div class="val">154,411</div></div>
+              <div class="period-grid-item"><div class="label">Safety Stock</div><div class="val" style="color:#2563EB">154,411</div></div>
+              <div class="period-grid-item"><div class="label">Total Req.</div><div class="val">10,112</div></div>
+              <div class="period-grid-item"><div class="label">Net Requirement</div><div class="val" style="color:#F97316">10,112</div></div>
+              <div class="period-grid-item"><div class="label">PR Quantity</div><div class="val" style="color:#F97316">10,112</div></div>
+              <div class="period-grid-item"><div class="label">Shelf Life</div><div class="val" style="color:#16A34A">985 days ✓</div></div>
+            </div>
+            <div class="alert-box" style="background:#FFF7ED;color:#C2410C">
+              After Period 1 order lands, stock = safety stock (154k). Ongoing consumption of 10,112 units needs replenishment.
+            </div>
+          </div>
+
+          <!-- Period 3 -->
+          <div class="card" style="border-left:4px solid #D1D5DB">
+            <div class="card-title" style="margin-bottom:0">
+              <div style="display:flex;justify-content:space-between;align-items:center;width:100%">
+                <span>Period 3 — Mar 2026 <span style="font-size:10px;font-weight:400;color:#9CA3AF">(Release: 14 Feb '26 → Receipt: 1 Mar '26)</span></span>
+                <span class="tag orange">Pending</span>
+              </div>
+            </div>
+            <div class="period-grid" style="margin-top:10px">
+              <div class="period-grid-item"><div class="label">Opening Stock</div><div class="val">154,411</div></div>
+              <div class="period-grid-item"><div class="label">Safety Stock</div><div class="val" style="color:#2563EB">154,411</div></div>
+              <div class="period-grid-item"><div class="label">Total Req.</div><div class="val">1,925</div></div>
+              <div class="period-grid-item"><div class="label">Net Requirement</div><div class="val" style="color:#F97316">1,925</div></div>
+              <div class="period-grid-item"><div class="label">PR Quantity</div><div class="val" style="color:#F97316">1,925</div></div>
+              <div class="period-grid-item"><div class="label">Shelf Life</div><div class="val" style="color:#16A34A">985 days ✓</div></div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <!-- AI Box -->
+          <div class="ai-box" style="margin-bottom:11px">
+            <div class="ai-box-hdr">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              AI Procurement Reasoning
+            </div>
+            <div class="ai-txt">
+              <strong>Why was this PR generated?</strong><br>
+              Material 201799 has a safety stock target of 154,411 units — maintained to ensure uninterrupted production at CHN-PP. In Period 1 (Jan '26), opening stock of 44,017 represents only <strong>28.5% coverage</strong>, triggering a 145,788-unit PR.<br><br>
+              <strong>Net Req. formula:</strong> <code style="background:rgba(0,0,0,.08);padding:1px 5px;border-radius:3px;font-size:10.5px">Safety Stock − Opening Stock − Open Orders</code><br><br>
+              <strong>Why RM SUPPLIER-2?</strong> Supplier Rank 1 (highest priority). Quality yield 99.5% minimises material losses. 25-day lead time fits within the planning window (Release: 17 Dec → Receipt: 1 Jan = 15 days — engine back-calculates the release date).<br><br>
+              <strong>Shelf life check ✓</strong> 985 days well exceeds the 3-month consumption horizon.
+            </div>
+          </div>
+
+          <!-- Stock chart -->
+          <div class="card" style="margin-bottom:11px">
+            <div class="card-title">Stock Position vs Safety Stock Target</div>
+            <div style="font-size:10.5px;color:#9CA3AF;margin-bottom:6px">Opening inventory (bars) against the safety stock threshold (orange line)</div>
+            <canvas id="ch-coverage" height="130"></canvas>
+          </div>
+
+          <!-- Supplier mini -->
+          <div class="card">
+            <div class="card-title">Assigned Supplier</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:11px">
+              <div><div style="color:#9CA3AF;font-size:9.5px;text-transform:uppercase;letter-spacing:.5px">Priority Rank</div><div style="font-weight:800;color:#F97316;font-size:17px">1st</div></div>
+              <div><div style="color:#9CA3AF;font-size:9.5px;text-transform:uppercase;letter-spacing:.5px">Quality Yield</div><div style="font-weight:800;color:#16A34A;font-size:17px">99.5%</div></div>
+              <div><div style="color:#9CA3AF;font-size:9.5px;text-transform:uppercase;letter-spacing:.5px">Lead Time</div><div style="font-weight:800;color:#2563EB;font-size:17px">25 days</div></div>
+              <div><div style="color:#9CA3AF;font-size:9.5px;text-transform:uppercase;letter-spacing:.5px">Shelf Life</div><div style="font-weight:800;font-size:17px">985d</div></div>
+            </div>
+            <button class="btn" style="width:100%;justify-content:center;margin-top:10px" onclick="showScreen(3)">
+              View Full Supplier Intelligence →
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════════════ SCREEN 3: SUPPLIER INTELLIGENCE ═══════════════ -->
+    <div id="screen-3" class="screen">
+      <div class="detail-header">
+        <div>
+          <div class="back-btn" onclick="showScreen(1)">← Back to RM Plan</div>
+          <div class="detail-title">Supplier Intelligence — Destination: CHN-PP</div>
+          <div class="detail-sub">Comparative analysis of 2 active suppliers across key procurement dimensions</div>
+        </div>
+      </div>
+
+      <div class="two-col" style="margin-bottom:12px">
+        <!-- Primary supplier -->
+        <div class="supp-card" style="border-top:4px solid #16A34A">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
+            <div><div style="font-size:15px;font-weight:800">RM SUPPLIER-2</div><div style="font-size:10.5px;color:#9CA3AF">Preferred Supplier · Rank 1</div></div>
+            <span class="tag green">Primary</span>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+            <div class="kpi-mini"><div class="kpi-mini-val" style="color:#16A34A;font-size:17px">Rank 1</div><div class="kpi-mini-label">Priority</div></div>
+            <div class="kpi-mini"><div class="kpi-mini-val" style="color:#2563EB;font-size:17px">10–25d</div><div class="kpi-mini-label">Lead Time Range</div></div>
+            <div class="kpi-mini"><div class="kpi-mini-val" style="color:#16A34A;font-size:14px">97.5–99.7%</div><div class="kpi-mini-label">Quality Yield Range</div></div>
+            <div class="kpi-mini"><div class="kpi-mini-val" style="color:#F97316;font-size:17px">6</div><div class="kpi-mini-label">Materials Assigned</div></div>
+          </div>
+          <div style="font-size:10px;color:#9CA3AF;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px">Materials Supplied</div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px">
+            <span class="tag green">231434</span><span class="tag green">201799</span><span class="tag green">211120</span>
+            <span class="tag green">280042</span><span class="tag green">203180</span><span class="tag green">283417</span>
+          </div>
+          <div style="margin-top:10px;padding:8px;background:#F0FDF4;border-radius:6px;font-size:11px;color:#065F46">
+            ✅ Handles 85.7% of materials. Shorter lead times enable tighter planning windows and reduce working capital tied up in pipeline inventory.
+          </div>
+        </div>
+
+        <!-- Backup supplier -->
+        <div class="supp-card" style="border-top:4px solid #D97706">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
+            <div><div style="font-size:15px;font-weight:800">RM SUPPLIER-1</div><div style="font-size:10.5px;color:#9CA3AF">Backup Supplier · Rank 2</div></div>
+            <span class="tag orange">Backup</span>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+            <div class="kpi-mini"><div class="kpi-mini-val" style="color:#D97706;font-size:17px">Rank 2</div><div class="kpi-mini-label">Priority</div></div>
+            <div class="kpi-mini"><div class="kpi-mini-val" style="color:#DC2626;font-size:17px">42d</div><div class="kpi-mini-label">Lead Time</div></div>
+            <div class="kpi-mini"><div class="kpi-mini-val" style="color:#D97706;font-size:17px">98.1%</div><div class="kpi-mini-label">Quality Yield</div></div>
+            <div class="kpi-mini"><div class="kpi-mini-val" style="color:#D97706;font-size:17px">1</div><div class="kpi-mini-label">Materials Assigned</div></div>
+          </div>
+          <div style="font-size:10px;color:#9CA3AF;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px">Materials Supplied</div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px"><span class="tag orange">283997</span></div>
+          <div style="margin-top:10px;padding:8px;background:#FFFBEB;border-radius:6px;font-size:11px;color:#92400E">
+            ⚠ Sole-source for material 283997. 42-day lead time requires release dates placed well ahead. Any delay directly impacts production. Qualify additional supplier recommended.
+          </div>
+        </div>
+      </div>
+
+      <!-- Comparison chart -->
+      <div class="card" style="margin-bottom:12px">
+        <div class="card-title">Head-to-Head Comparison</div>
+        <canvas id="ch-supplier" height="110"></canvas>
+      </div>
+
+      <!-- Decision logic -->
+      <div class="card">
+        <div class="card-title">AI Supplier Selection Logic — How the Engine Chooses</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;font-size:11.5px;text-align:center;margin-top:4px">
+          <div style="padding:11px;background:#F0FDF4;border-radius:8px;border:1px solid #BBF7D0">
+            <div style="font-size:18px;margin-bottom:4px">🏆</div>
+            <div style="font-weight:700;color:#065F46">Quality Score</div>
+            <div style="color:#047857;margin-top:3px;font-size:10.5px">RMSUP-2 wins<br>99.2–99.7% vs 98.1%</div>
+          </div>
+          <div style="padding:11px;background:#EFF6FF;border-radius:8px;border:1px solid #BFDBFE">
+            <div style="font-size:18px;margin-bottom:4px">⚡</div>
+            <div style="font-weight:700;color:#1E3A8A">Lead Time</div>
+            <div style="color:#1D4ED8;margin-top:3px;font-size:10.5px">RMSUP-2 wins<br>10–25d vs 42d</div>
+          </div>
+          <div style="padding:11px;background:#FFF7ED;border-radius:8px;border:1px solid #FED7AA">
+            <div style="font-size:18px;margin-bottom:4px">📦</div>
+            <div style="font-weight:700;color:#92400E">Availability</div>
+            <div style="color:#C2410C;margin-top:3px;font-size:10.5px">RMSUP-1 required<br>Only source for 283997</div>
+          </div>
+          <div style="padding:11px;background:#F3E8FF;border-radius:8px;border:1px solid #DDD6FE">
+            <div style="font-size:18px;margin-bottom:4px">⚖️</div>
+            <div style="font-weight:700;color:#5B21B6">Shelf Life</div>
+            <div style="color:#6D28D9;margin-top:3px;font-size:10.5px">Both pass<br>985 days remaining</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════════════ SCREEN 4: PROCUREMENT INSIGHTS ═══════════════ -->
+    <div id="screen-4" class="screen">
+      <div class="detail-header">
+        <div>
+          <div class="back-btn" onclick="showScreen(1)">← Back to RM Plan</div>
+          <div class="detail-title">Procurement Insights — Jan 2026 Plan</div>
+          <div class="detail-sub">AI-generated analysis: requirements, risk flags, and optimization opportunities across all 121 RM SKUs</div>
+        </div>
+      </div>
+
+      <div class="three-col" style="margin-bottom:12px">
+        <div class="kpi-mini"><div class="kpi-mini-val" style="color:#F97316">364</div><div class="kpi-mini-label">Total PRs Generated</div><div class="kpi-mini-sub">Across 121 RM SKUs</div></div>
+        <div class="kpi-mini"><div class="kpi-mini-val" style="color:#16A34A">2</div><div class="kpi-mini-label">Active Suppliers</div><div class="kpi-mini-sub">1 Primary · 1 Backup</div></div>
+        <div class="kpi-mini"><div class="kpi-mini-val" style="color:#2563EB">3</div><div class="kpi-mini-label">Planning Horizons</div><div class="kpi-mini-sub">Dec '25 / Jan '26 / Feb '26</div></div>
+      </div>
+
+      <div class="two-col" style="margin-bottom:12px">
+        <div class="card">
+          <div class="card-title">PR Quantity by Material (Top 7 shown)</div>
+          <canvas id="ch-material" height="150"></canvas>
+        </div>
+        <div class="card">
+          <div class="card-title">PR Volume by Release Period</div>
+          <canvas id="ch-period" height="150"></canvas>
+        </div>
+      </div>
+
+      <!-- Risk Flags -->
+      <div class="card" style="margin-bottom:12px">
+        <div class="card-title">🚦 AI Risk Flags &amp; Recommendations</div>
+        <div style="margin-top:6px">
+          <div class="risk-flag risk-critical">
+            <div class="emoji">🔴</div>
+            <div><div class="flag-title">Critical: Material 201799 — Severe Stock Deficit (Period 1)</div>
+            <div class="flag-body">Opening stock (44,017) is only 28.5% of safety stock target (154,411). Largest single PR in the plan: 145,788 units. Confirm RM SUPPLIER-2 has available capacity and that the Dec 17 release date is achievable before approving.</div></div>
+          </div>
+          <div class="risk-flag risk-critical">
+            <div class="emoji">🔴</div>
+            <div><div class="flag-title">Critical: Material 211120 — Multi-Period Replenishment Required</div>
+            <div class="flag-body">Opening stock (8,861) vs safety stock (52,267) — a 83% shortfall. Net requirement of 47,487 units in Period 1, followed by additional PRs in Periods 2 and 3. Back-to-back procurement across all horizons.</div></div>
+          </div>
+          <div class="risk-flag risk-warn">
+            <div class="emoji">🟡</div>
+            <div><div class="flag-title">Warning: RM SUPPLIER-1 — 42-Day Lead Time Creates Buffer Risk</div>
+            <div class="flag-body">Material 283997 sourced solely from RM SUPPLIER-1 with a 42-day lead time — nearly 2× that of the primary supplier. Any supplier delay propagates directly to production. Recommend qualifying a secondary source for this material.</div></div>
+          </div>
+          <div class="risk-flag risk-ok">
+            <div class="emoji">🟢</div>
+            <div><div class="flag-title">No Action: Material 231434 — Adequately Stocked</div>
+            <div class="flag-body">Opening stock (23,445–28,762) consistently exceeds safety stock (6,491) across all 3 periods. Zero net requirement — no procurement action needed. PRs generated with PR Qty = 0.</div></div>
+          </div>
+          <div class="risk-flag risk-info">
+            <div class="emoji">💡</div>
+            <div><div class="flag-title">Opportunity: Supplier Concentration Risk</div>
+            <div class="flag-body">85.7% of materials are sole-sourced from RM SUPPLIER-2. Qualifying RM SUPPLIER-1 for 2–3 additional high-volume materials would reduce single-source dependency, improve supply resilience, and create negotiation leverage.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Procurement Flow -->
+      <div class="card">
+        <div class="card-title">How the Procurement Engine Works — End-to-End Flow</div>
+        <div class="flow-wrap">
+          <div class="flow-node">
+            <div class="flow-icon" style="background:#DBEAFE">🏭</div>
+            <div class="flow-lbl">Production Plan</div>
+            <div class="flow-sub">BOM explosion →<br>RM requirements</div>
+          </div>
+          <div class="flow-arrow"></div>
+          <div class="flow-node">
+            <div class="flow-icon" style="background:#FEF3C7">🧮</div>
+            <div class="flow-lbl">MRP Engine</div>
+            <div class="flow-sub">Safety stock +<br>Net req. calc</div>
+          </div>
+          <div class="flow-arrow"></div>
+          <div class="flow-node">
+            <div class="flow-icon" style="background:#D1FAE5">🎯</div>
+            <div class="flow-lbl">Supplier Selection</div>
+            <div class="flow-sub">Rank, lead time,<br>quality, capacity</div>
+          </div>
+          <div class="flow-arrow"></div>
+          <div class="flow-node">
+            <div class="flow-icon" style="background:#FCE7F3">📋</div>
+            <div class="flow-lbl">PR Generation</div>
+            <div class="flow-sub">Release date,<br>quantity, supplier</div>
+          </div>
+          <div class="flow-arrow"></div>
+          <div class="flow-node">
+            <div class="flow-icon" style="background:#FDE8D8">✅</div>
+            <div class="flow-lbl">Planner Approval</div>
+            <div class="flow-sub">Review → Approve<br>or Reject</div>
+          </div>
+          <div class="flow-arrow"></div>
+          <div class="flow-node">
+            <div class="flow-icon" style="background:#E0E7FF">🚚</div>
+            <div class="flow-lbl">PO Dispatch</div>
+            <div class="flow-sub">Sent to supplier<br>for fulfillment</div>
+          </div>
+          <div class="flow-arrow"></div>
+          <div class="flow-node">
+            <div class="flow-icon" style="background:#DCFCE7">📦</div>
+            <div class="flow-lbl">GR at CHN-PP</div>
+            <div class="flow-sub">Stock received &amp;<br>updated in system</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /content -->
+</div><!-- /main -->
+</div><!-- /app -->
+
+<!-- Bottom screen nav -->
+<div class="screen-nav-bar">
+  <div class="snav-btn active" id="snav-1" onclick="showScreen(1)">📋 RM Plan Table</div>
+  <div class="snav-btn" id="snav-2" onclick="showScreen(2)">🔍 Material Detail</div>
+  <div class="snav-btn" id="snav-3" onclick="showScreen(3)">🏭 Supplier Intel</div>
+  <div class="snav-btn" id="snav-4" onclick="showScreen(4)">📊 Insights</div>
+</div>
+
+<!-- Approve Modal -->
+<div class="modal-overlay" id="approve-modal">
+  <div class="modal">
+    <div class="modal-title">✅ Approve Purchase Requisitions</div>
+    <div class="modal-body">You are about to approve <strong id="approve-cnt">the selected</strong> purchase requisitions.<br><br>Approved PRs will be converted to Purchase Orders and dispatched to the respective suppliers. This triggers procurement workflows in the ERP system and commits budget.<br><br><strong>Confirm approval?</strong></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn approve" onclick="doApprove()">Confirm Approve</button>
+    </div>
+  </div>
+</div>
+
+<!-- Reject Modal -->
+<div class="modal-overlay" id="reject-modal">
+  <div class="modal">
+    <div class="modal-title">❌ Reject Purchase Requisitions</div>
+    <div class="modal-body">Rejected PRs will be flagged and returned to the planning queue with an exception alert. The planning engine will prompt for a rejection reason.<br><br>Rejected PRs do NOT generate Purchase Orders.<br><br><strong>Confirm rejection?</strong></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn reject" onclick="doReject()">Confirm Reject</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── DATA ──────────────────────────────────────────────────────────
+const D = [
+  {mid:'231434',mname:'RM-NAME-231434',gd:'02/02/26',rd:'17/12/25',rcd:'01/01/26',os:23445,oo:0,ss:6491.21,tr:2871.30,nr:0,pq:0,sup:'RM SUPPLIER-2',sid:'RMSUP-2',sl:985,dest:'CHN-PP',rank:1,lt:10,qy:99.2},
+  {mid:'231434',mname:'RM-NAME-231434',gd:'02/02/26',rd:'17/01/26',rcd:'01/02/26',os:20573.70,oo:0,ss:6491.21,tr:99.01,nr:0,pq:0,sup:'RM SUPPLIER-2',sid:'RMSUP-2',sl:985,dest:'CHN-PP',rank:1,lt:10,qy:99.2},
+  {mid:'231434',mname:'RM-NAME-231434',gd:'02/02/26',rd:'14/02/26',rcd:'01/03/26',os:20474.69,oo:0,ss:6491.21,tr:99.01,nr:0,pq:0,sup:'RM SUPPLIER-2',sid:'RMSUP-2',sl:985,dest:'CHN-PP',rank:1,lt:10,qy:99.2},
+  {mid:'201799',mname:'RM-NAME-201799',gd:'02/02/26',rd:'17/12/25',rcd:'01/01/26',os:44017,oo:0,ss:154411.84,tr:35393.51,nr:145788.35,pq:145788.35,sup:'RM SUPPLIER-2',sid:'RMSUP-2',sl:985,dest:'CHN-PP',rank:1,lt:25,qy:99.5},
+  {mid:'201799',mname:'RM-NAME-201799',gd:'02/02/26',rd:'14/02/26',rcd:'01/03/26',os:154411.84,oo:0,ss:154411.84,tr:1925.51,nr:1925.51,pq:1925.51,sup:'RM SUPPLIER-2',sid:'RMSUP-2',sl:985,dest:'CHN-PP',rank:1,lt:25,qy:99.5},
+  {mid:'201799',mname:'RM-NAME-201799',gd:'02/02/26',rd:'17/01/26',rcd:'01/02/26',os:154411.84,oo:0,ss:154411.84,tr:10112.75,nr:10112.75,pq:10112.75,sup:'RM SUPPLIER-2',sid:'RMSUP-2',sl:985,dest:'CHN-PP',rank:1,lt:25,qy:99.5},
+  {mid:'211120',mname:'RM-NAME-211120',gd:'02/02/26',rd:'14/02/26',rcd:'01/03/26',os:52267.21,oo:0,ss:52267.21,tr:4726.92,nr:4726.92,pq:4726.92,sup:'RM SUPPLIER-2',sid:'RMSUP-2',sl:985,dest:'CHN-PP',rank:1,lt:25,qy:99.7},
+  {mid:'211120',mname:'RM-NAME-211120',gd:'02/02/26',rd:'17/01/26',rcd:'01/02/26',os:52267.21,oo:0,ss:52267.21,tr:293.60,nr:293.60,pq:293.60,sup:'RM SUPPLIER-2',sid:'RMSUP-2',sl:985,dest:'CHN-PP',rank:1,lt:25,qy:99.7},
+  {mid:'211120',mname:'RM-NAME-211120',gd:'02/02/26',rd:'17/12/25',rcd:'01/01/26',os:8861,oo:0,ss:52267.21,tr:4080.96,nr:47487.17,pq:47487.17,sup:'RM SUPPLIER-2',sid:'RMSUP-2',sl:985,dest:'CHN-PP',rank:1,lt:25,qy:99.7},
+  {mid:'280042',mname:'RM-NAME-280042',gd:'02/02/26',rd:'14/02/26',rcd:'01/03/26',os:8179.93,oo:0,ss:8179.93,tr:420.93,nr:420.93,pq:420.93,sup:'RM SUPPLIER-2',sid:'RMSUP-2',sl:985,dest:'CHN-PP',rank:1,lt:25,qy:98.3},
+  {mid:'280042',mname:'RM-NAME-280042',gd:'02/02/26',rd:'17/01/26',rcd:'01/02/26',os:8179.93,oo:0,ss:8179.93,tr:53.18,nr:53.18,pq:53.18,sup:'RM SUPPLIER-2',sid:'RMSUP-2',sl:985,dest:'CHN-PP',rank:1,lt:25,qy:98.3},
+  {mid:'280042',mname:'RM-NAME-280042',gd:'02/02/26',rd:'17/12/25',rcd:'01/01/26',os:10125,oo:0,ss:8179.93,tr:29945.29,nr:28000.22,pq:28000.22,sup:'RM SUPPLIER-2',sid:'RMSUP-2',sl:985,dest:'CHN-PP',rank:1,lt:25,qy:98.3},
+  {mid:'203180',mname:'RM-NAME-203180',gd:'02/02/26',rd:'14/02/26',rcd:'01/03/26',os:6232.28,oo:0,ss:6232.28,tr:211.13,nr:211.13,pq:211.13,sup:'RM SUPPLIER-2',sid:'RMSUP-2',sl:985,dest:'CHN-PP',rank:1,lt:25,qy:97.7},
+  {mid:'203180',mname:'RM-NAME-203180',gd:'02/02/26',rd:'17/01/26',rcd:'01/02/26',os:6725.14,oo:0,ss:6232.28,tr:1241.40,nr:748.54,pq:748.54,sup:'RM SUPPLIER-2',sid:'RMSUP-2',sl:985,dest:'CHN-PP',rank:1,lt:25,qy:97.7},
+  {mid:'283997',mname:'RM-NAME-283997',gd:'02/02/26',rd:'17/01/26',rcd:'01/02/26',os:2638.97,oo:0,ss:2586.65,tr:449.37,nr:397.05,pq:397.05,sup:'RM SUPPLIER-1',sid:'RMSUP-1',sl:985,dest:'CHN-PP',rank:2,lt:42,qy:98.1},
+  {mid:'283997',mname:'RM-NAME-283997',gd:'02/02/26',rd:'14/02/26',rcd:'01/03/26',os:2586.65,oo:0,ss:2586.65,tr:79.32,nr:79.32,pq:79.32,sup:'RM SUPPLIER-1',sid:'RMSUP-1',sl:985,dest:'CHN-PP',rank:2,lt:42,qy:98.1},
+  {mid:'283417',mname:'RM-NAME-283417',gd:'02/02/26',rd:'17/01/26',rcd:'01/02/26',os:28252.16,oo:0,ss:28252.16,tr:1231.55,nr:1231.55,pq:1231.55,sup:'RM SUPPLIER-2',sid:'RMSUP-2',sl:985,dest:'CHN-PP',rank:1,lt:21,qy:97.5},
+  {mid:'283417',mname:'RM-NAME-283417',gd:'02/02/26',rd:'17/12/25',rcd:'01/01/26',os:3758,oo:0,ss:28252.16,tr:6918.07,nr:31412.24,pq:31412.24,sup:'RM SUPPLIER-2',sid:'RMSUP-2',sl:985,dest:'CHN-PP',rank:1,lt:21,qy:97.5},
+  {mid:'283417',mname:'RM-NAME-283417',gd:'02/02/26',rd:'14/02/26',rcd:'01/03/26',os:28252.16,oo:0,ss:28252.16,tr:275.48,nr:275.48,pq:275.48,sup:'RM SUPPLIER-2',sid:'RMSUP-2',sl:985,dest:'CHN-PP',rank:1,lt:21,qy:97.5},
+];
+
+let sel = new Set(), approved = new Set(), rejected = new Set();
+
+function fmt(n, d=0) {
+  if (n === 0 || n === null) return null;
+  return n.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
+}
+
+function renderTable() {
+  const tb = document.getElementById('tbody');
+  tb.innerHTML = D.map((r,i) => {
+    const st = approved.has(i) ? 'approved' : rejected.has(i) ? 'rejected' : 'pending';
+    const rc = approved.has(i) ? 'row-approved' : rejected.has(i) ? 'row-rejected' : '';
+    const badge = st==='approved' ? '<span class="tag green">Approved</span>'
+                : st==='rejected' ? '<span class="tag red">Rejected</span>'
+                : '<span class="tag orange">Pending</span>';
+    const pqDisp = r.pq > 0 ? `<span class="pr-hi">${fmt(r.pq,2)}</span>` : `<span class="zero-v">—</span>`;
+    const nrDisp = r.nr > 0 ? `<span style="color:#EF4444;font-weight:700">${fmt(r.nr,2)}</span>` : `<span class="zero-v">0</span>`;
+    const supColor = r.rank===1 ? '#16A34A' : '#D97706';
+    return `<tr class="${rc}" onclick="rowClick(${i},event)">
+      <td><input type="checkbox" ${sel.has(i)?'checked':''} onchange="toggleRow(${i},this)" onclick="event.stopPropagation()"></td>
+      <td><strong>${r.dest}</strong></td>
+      <td><strong>${r.mid}</strong></td>
+      <td style="font-size:11px;color:#6B7280">${r.gd}</td>
+      <td style="font-size:11px">${r.rd}</td>
+      <td style="font-size:11px">${r.rcd}</td>
+      <td class="num">${fmt(r.os,r.os%1?2:0)||'—'}</td>
+      <td class="num"><span class="zero-v">0</span></td>
+      <td class="num" style="color:#2563EB;font-weight:600">${fmt(r.ss,2)}</td>
+      <td class="num">${fmt(r.tr,2)}</td>
+      <td class="num">${nrDisp}</td>
+      <td class="num">${pqDisp}</td>
+      <td onclick="event.stopPropagation();showScreen(3)" style="cursor:pointer">
+        <span style="font-size:11px;color:${supColor};font-weight:600;text-decoration:underline;text-underline-offset:2px">${r.sup}</span>
+      </td>
+      <td style="text-align:center"><span class="tag ${r.rank===1?'green':'orange'}">#${r.rank}</span></td>
+      <td class="num">${r.lt}d</td>
+      <td class="num">${r.qy}%</td>
+      <td class="num">${r.sl}d</td>
+      <td>${badge}</td>
+    </tr>`;
+  }).join('');
+}
+
+function rowClick(i, e) {
+  if (e.target.tagName==='INPUT') return;
+  showScreen(2);
+}
+
+function toggleRow(i, cb) {
+  cb.checked ? sel.add(i) : sel.delete(i);
+}
+
+function toggleAll(cb) {
+  D.forEach((_,i) => cb.checked ? sel.add(i) : sel.delete(i));
+  renderTable();
+}
+
+function updateCounts() {
+  document.getElementById('cnt-pending').textContent = 364 - approved.size - rejected.size;
+  document.getElementById('cnt-approved').textContent = approved.size;
+  document.getElementById('cnt-rejected').textContent = rejected.size;
+}
+
+function openModal(id) {
+  if (id==='approve-modal') {
+    document.getElementById('approve-cnt').textContent = sel.size > 0 ? sel.size : 'all 364';
+  }
+  document.getElementById(id).classList.add('active');
+}
+
+function closeModal() {
+  document.querySelectorAll('.modal-overlay').forEach(m => m.classList.remove('active'));
+}
+
+function doApprove() {
+  const list = sel.size > 0 ? [...sel] : D.map((_,i)=>i);
+  list.forEach(i => { approved.add(i); rejected.delete(i); });
+  sel.clear();
+  renderTable(); updateCounts(); closeModal();
+}
+
+function doReject() {
+  const list = sel.size > 0 ? [...sel] : [];
+  list.forEach(i => { rejected.add(i); approved.delete(i); });
+  sel.clear();
+  renderTable(); updateCounts(); closeModal();
+}
+
+function approveMat() {
+  [3,4,5].forEach(i => { approved.add(i); rejected.delete(i); });
+  renderTable(); updateCounts();
+  alert('✅ All 3 PRs for Material 201799 have been approved and queued for PO generation.');
+}
+
+// ── NAVIGATION ──────────────────────────────────────────────────
+let chartsInited = false;
+let curScreen = 1;
+
+function showScreen(n) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('screen-'+n).classList.add('active');
+  document.querySelectorAll('.snav-btn').forEach((b,i) => b.classList.toggle('active', i===n-1));
+  curScreen = n;
+
+  const crumbs = {
+    1: `<span>Jan 26</span><span style="color:#D1D5DB">›</span><span class="current">RM Plan</span>`,
+    2: `<span>Jan 26</span><span style="color:#D1D5DB">›</span><span style="color:#9CA3AF;cursor:pointer" onclick="showScreen(1)">RM Plan</span><span style="color:#D1D5DB">›</span><span class="current">Material 201799</span>`,
+    3: `<span>Jan 26</span><span style="color:#D1D5DB">›</span><span style="color:#9CA3AF;cursor:pointer" onclick="showScreen(1)">RM Plan</span><span style="color:#D1D5DB">›</span><span class="current">Supplier Intelligence</span>`,
+    4: `<span>Jan 26</span><span style="color:#D1D5DB">›</span><span style="color:#9CA3AF;cursor:pointer" onclick="showScreen(1)">RM Plan</span><span style="color:#D1D5DB">›</span><span class="current">Procurement Insights</span>`,
+  };
+  document.getElementById('breadcrumb').innerHTML = crumbs[n];
+
+  if (!chartsInited) { initCharts(); chartsInited = true; }
+}
+
+function si(el) {
+  document.querySelectorAll('.sidebar-item').forEach(i => i.classList.remove('active'));
+  el.classList.add('active');
+}
+
+// ── CHARTS ──────────────────────────────────────────────────────
+const chartDefaults = {
+  responsive:true, maintainAspectRatio:false,
+  plugins:{ legend:{ labels:{ font:{size:10}, boxWidth:12 } } }
+};
+
+function initCharts() {
+  // Screen 2 – stock coverage
+  new Chart(document.getElementById('ch-coverage'), {
+    type:'bar',
+    data:{
+      labels:['Jan 2026','Feb 2026','Mar 2026'],
+      datasets:[
+        {label:'Opening Stock',data:[44017,154411,154411],backgroundColor:'#93C5FD',borderRadius:4},
+        {label:'Safety Stock Target',data:[154411,154411,154411],type:'line',borderColor:'#F97316',borderWidth:2.5,pointBackgroundColor:'#F97316',backgroundColor:'transparent',tension:0}
+      ]
+    },
+    options:{...chartDefaults, scales:{
+      y:{ticks:{font:{size:10},callback:v=>(v/1000).toFixed(0)+'k'},grid:{color:'#F3F4F6'}},
+      x:{ticks:{font:{size:10}},grid:{display:false}}
+    }}
+  });
+
+  // Screen 3 – supplier comparison
+  new Chart(document.getElementById('ch-supplier'), {
+    type:'bar',
+    data:{
+      labels:['Quality Yield (%)','Lead Time (days)','Materials Covered'],
+      datasets:[
+        {label:'RM SUPPLIER-2',data:[99.2,25,6],backgroundColor:'#16A34A',borderRadius:4},
+        {label:'RM SUPPLIER-1',data:[98.1,42,1],backgroundColor:'#D97706',borderRadius:4}
+      ]
+    },
+    options:{...chartDefaults, scales:{
+      y:{ticks:{font:{size:10}},grid:{color:'#F3F4F6'}},
+      x:{ticks:{font:{size:10}},grid:{display:false}}
+    }}
+  });
+
+  // Screen 4 – material PR qty
+  new Chart(document.getElementById('ch-material'), {
+    type:'bar',
+    data:{
+      labels:['201799','211120','283417','280042','283997','203180','231434'],
+      datasets:[{
+        label:'Total PR Qty',
+        data:[157826,52507,32919,28474,476,960,0],
+        backgroundColor:['#EF4444','#F97316','#F59E0B','#FBBF24','#A78BFA','#60A5FA','#D1D5DB'],
+        borderRadius:4
+      }]
+    },
+    options:{...chartDefaults, indexAxis:'y', plugins:{legend:{display:false}},
+      scales:{
+        x:{ticks:{font:{size:10},callback:v=>v>=1000?(v/1000).toFixed(0)+'k':v},grid:{color:'#F3F4F6'}},
+        y:{ticks:{font:{size:10}},grid:{display:false}}
+      }
+    }
+  });
+
+  // Screen 4 – period donut
+  new Chart(document.getElementById('ch-period'), {
+    type:'doughnut',
+    data:{
+      labels:['Dec 2025 (Release)','Jan 2026 (Release)','Feb 2026 (Release)'],
+      datasets:[{data:[252688,12793,7393],backgroundColor:['#F97316','#2563EB','#16A34A'],hoverOffset:4}]
+    },
+    options:{...chartDefaults, plugins:{
+      legend:{position:'right',labels:{font:{size:10},boxWidth:12}},
+      tooltip:{callbacks:{label:c=>` ${c.label}: ${(c.raw/1000).toFixed(0)}k units`}}
+    }}
+  });
+}
+
+// ── INIT ────────────────────────────────────────────────────────
+renderTable();
+
+// ── VISUALIZATION RENDER ─────────────────────
+function renderViz(){
+  if(typeof D === 'undefined') return;
+
+  const agg = {};
+
+  D.forEach(r=>{
+    if(!agg[r.mid]){
+      agg[r.mid] = { stock: r.os || 0, req: r.tr || 0, pr: 0 };
+    }
+    agg[r.mid].pr += r.pq || 0;
+  });
+
+  const mats = Object.keys(agg).slice(0,6);
+
+  const stockHTML = mats.map(m=>{
+    const s = agg[m].stock;
+    const r = agg[m].req;
+    const max = Math.max(s,r,1);
+    const sp = (s/max)*100;
+    const rp = (r/max)*100;
+
+    return `
+      <div class="viz-item">
+        <div class="viz-label">
+          <span>${m}</span>
+          <span>Stock: ${s.toLocaleString()} · Req: ${r.toLocaleString()}</span>
+        </div>
+        <div class="viz-bar">
+          <div class="viz-fill fill-stock" style="width:${sp}%"></div>
+          <div class="viz-fill fill-req" style="width:${rp}%; margin-top:-12px; opacity:.7"></div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  const stockEl = document.getElementById('viz-stock');
+  if(stockEl) stockEl.innerHTML = stockHTML;
+
+  const maxPR = Math.max(...mats.map(m=>agg[m].pr),1);
+
+  const prHTML = mats.map(m=>{
+    const val = agg[m].pr;
+    const pct = (val/maxPR)*100;
+
+    return `
+      <div class="viz-item">
+        <div class="viz-label">
+          <span>${m}</span>
+          <span style="color:#065F46">${val.toLocaleString()}</span>
+        </div>
+        <div class="viz-bar">
+          <div class="viz-fill fill-pr" style="width:${pct}%"></div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  const prEl = document.getElementById('viz-pr');
+  if(prEl) prEl.innerHTML = prHTML;
+}
+
+setTimeout(renderViz, 200);
+
+</script>
+</body>
+</html>
