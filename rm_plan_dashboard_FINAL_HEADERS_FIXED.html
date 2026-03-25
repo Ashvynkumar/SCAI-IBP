@@ -468,7 +468,7 @@ input[type=checkbox]{cursor:pointer;accent-color:#F97316}
             <button class="btn"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add</button>
             <button class="btn"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg> Replan</button>
             <button class="btn disabled">Save</button>
-            <div class="btn-icon blue"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div>
+            <div class="btn-icon blue ttpw" onclick="exportCSV()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg><span class="ttpc">Export table as CSV</span></div>
             <div class="btn-icon"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div>
           </div>
         </div>
@@ -1094,6 +1094,39 @@ function initCharts() {
       tooltip:{callbacks:{label:c=>` ${c.label}: ${(c.raw/1000).toFixed(0)}k units`}}
     }}
   });
+}
+
+// ── EXPORT ──────────────────────────────────────────────────────
+function exportCSV() {
+  const headers = [
+    'To Node Code','Material ID','Generation Date','Release Date','Receipt Date',
+    'Opening Stock','Open Orders','Safety Stock','Total Req.','Net Req.','PR Qty',
+    'Supplier','Rank','Lead Time','Quality %','Shelf Life','Status'
+  ];
+
+  const rows = D.map((r,i) => {
+    const st = approved.has(i) ? 'Approved' : rejected.has(i) ? 'Rejected' : 'Pending';
+    return [
+      r.dest, r.mid, r.gd, r.rd, r.rcd,
+      r.os, r.oo, r.ss, r.tr, r.nr, r.pq,
+      r.sup, r.rank, r.lt, r.qy, r.sl, st
+    ];
+  });
+
+  const csvContent = [headers, ...rows]
+    .map(row => row.map(v => {
+      const s = String(v == null ? '' : v);
+      return s.includes(',') || s.includes('"') ? '"' + s.replace(/"/g,'""') + '"' : s;
+    }).join(','))
+    .join('\n');
+
+  const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'RM_Plan_Jan2026.csv';
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 // ── INIT ────────────────────────────────────────────────────────
